@@ -21,7 +21,6 @@ import org.apache.kafka.connect.data.Schema;
 import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import io.confluent.connect.hdfs.HdfsSinkConnectorConfig;
 import io.confluent.connect.hdfs.partitioner.Partitioner;
-import io.confluent.connect.storage.common.StorageCommonConfig;
 
 // NOTE: DO NOT add or modify this class as it is maintained for compatibility
 @Deprecated
@@ -29,15 +28,7 @@ import io.confluent.connect.storage.common.StorageCommonConfig;
 public abstract class HiveUtil extends io.confluent.connect.storage.hive.HiveUtil {
 
   public HiveUtil(HdfsSinkConnectorConfig connectorConfig, HiveMetaStore hiveMetaStore) {
-    super(connectorConfig, hiveMetaStore);
-    String urlKey;
-
-    urlKey = connectorConfig.getString(StorageCommonConfig.STORE_URL_CONFIG);
-    if (urlKey == null || urlKey.equals(StorageCommonConfig.STORE_URL_DEFAULT)) {
-      urlKey = connectorConfig.getString(HdfsSinkConnectorConfig.HDFS_URL_CONFIG);
-    }
-
-    this.url = urlKey;
+    super(connectorConfig, hiveMetaStore, connectorConfig.url());
   }
 
   @Override
@@ -45,16 +36,18 @@ public abstract class HiveUtil extends io.confluent.connect.storage.hive.HiveUti
       String database,
       String tableName,
       Schema schema,
-      io.confluent.connect.storage.partitioner.Partitioner<FieldSchema> partitioner
+      io.confluent.connect.storage.partitioner.Partitioner<FieldSchema> partitioner,
+      String topic
   ) {
-    createTable(database, tableName, schema, (Partitioner) partitioner);
+    createTable(database, tableName, schema, (Partitioner) partitioner, topic);
   }
 
   public abstract void createTable(
       String database,
       String tableName,
       Schema schema,
-      Partitioner partitioner
+      Partitioner partitioner,
+      String topic
   );
 
 }

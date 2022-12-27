@@ -15,6 +15,8 @@
 
 package io.confluent.connect.hdfs;
 
+import static io.confluent.connect.hdfs.HdfsSinkConnector.TASK_ID_CONFIG_NAME;
+
 import org.apache.kafka.clients.consumer.OffsetAndMetadata;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.config.ConfigException;
@@ -42,6 +44,10 @@ public class HdfsSinkTask extends SinkTask {
   private DataWriter hdfsWriter;
   private AvroData avroData;
 
+  private String taskId;
+  private String connectorName;
+  private String connectorNameAndTaskId;
+
   public HdfsSinkTask() {}
 
   @Override
@@ -51,7 +57,11 @@ public class HdfsSinkTask extends SinkTask {
 
   @Override
   public void start(Map<String, String> props) {
-    Set<TopicPartition> assignment = context.assignment();
+    connectorName = props.get("name");
+    taskId = props.get(TASK_ID_CONFIG_NAME);
+    connectorNameAndTaskId = String.format("%s-%s", connectorName, taskId);
+    log.info("Starting HDFS Sink Task {}", connectorNameAndTaskId);
+
     try {
       HdfsSinkConnectorConfig connectorConfig = new HdfsSinkConnectorConfig(props);
       boolean hiveIntegration = connectorConfig.getBoolean(HiveConfig.HIVE_INTEGRATION_CONFIG);
@@ -77,20 +87,16 @@ public class HdfsSinkTask extends SinkTask {
         DateTimeZone.forID(timeZoneString);
       }
 
-      int schemaCacheSize = connectorConfig.getInt(
-          HdfsSinkConnectorConfig.SCHEMA_CACHE_SIZE_CONFIG
-      );
-      avroData = new AvroData(schemaCacheSize);
+      avroData = new AvroData(connectorConfig.avroDataConfig());
       hdfsWriter = new DataWriter(connectorConfig, context, avroData);
-      recover(assignment);
+      recover(context.assignment());
       if (hiveIntegration) {
         syncWithHive();
       }
     } catch (ConfigException e) {
       throw new ConnectException("Couldn't start HdfsSinkConnector due to configuration error.", e);
     } catch (ConnectException e) {
-      // Log at info level to help explain reason, but Connect logs the actual exception at ERROR
-      log.info("Couldn't start HdfsSinkConnector:", e);
+      log.error("Couldn't start HdfsSinkConnector:", e);
       log.info("Shutting down HdfsSinkConnector.");
       if (hdfsWriter != null) {
         try {
@@ -109,9 +115,11 @@ public class HdfsSinkTask extends SinkTask {
       throw e;
     }
 
-    log.info("The connector relies on offsets in HDFS filenames, but does commit these offsets to "
-        + "Connect to enable monitoring progress of the HDFS connector. Upon startup, the HDFS "
-        + "Connector restores offsets from filenames in HDFS. In the absence of files in HDFS, "
+    log.info("The connector relies on offsets in the WAL files, if these are not present it uses "
+        + "the filenames in HDFS. In both cases the connector commits offsets to Connect to "
+        + "enable monitoring progress of the HDFS connector. Upon startup, the HDFS "
+        + "Connector restores offsets from the WAL log files, if these are not present it "
+        + "uses the filenames in HDFS. In the absence of files in HDFS, "
         + "the connector will attempt to find offsets for its consumer group in the "
         + "'__consumer_offsets' topic. If offsets are not found, the consumer will "
         + "rely on the reset policy specified in the 'consumer.auto.offset.reset' property to "
@@ -120,9 +128,7 @@ public class HdfsSinkTask extends SinkTask {
 
   @Override
   public void put(Collection<SinkRecord> records) throws ConnectException {
-    if (log.isDebugEnabled()) {
-      log.debug("Read {} records from Kafka", records.size());
-    }
+    log.debug("Read {} records from Kafka", records.size());
     try {
       hdfsWriter.write(records);
     } catch (ConnectException e) {
@@ -152,11 +158,13 @@ public class HdfsSinkTask extends SinkTask {
 
   @Override
   public void open(Collection<TopicPartition> partitions) {
+    log.debug("Opening HDFS Sink Task {}", connectorNameAndTaskId);
     hdfsWriter.open(partitions);
   }
 
   @Override
   public void close(Collection<TopicPartition> partitions) {
+    log.debug("Closing HDFS Sink Task {}", connectorNameAndTaskId);
     if (hdfsWriter != null) {
       hdfsWriter.close();
     }
@@ -164,6 +172,7 @@ public class HdfsSinkTask extends SinkTask {
 
   @Override
   public void stop() throws ConnectException {
+    log.info("Stopping HDFS Sink Task {}", connectorNameAndTaskId);
     if (hdfsWriter != null) {
       hdfsWriter.stop();
     }

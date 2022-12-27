@@ -17,7 +17,6 @@ package io.confluent.connect.hdfs.json;
 
 import com.fasterxml.jackson.core.JsonGenerator;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.apache.hadoop.fs.Path;
 import org.apache.kafka.connect.data.Struct;
 import org.apache.kafka.connect.errors.ConnectException;
 import org.apache.kafka.connect.json.JsonConverter;
@@ -66,18 +65,16 @@ public class JsonRecordWriterProvider implements RecordWriterProvider<HdfsSinkCo
   }
 
   @Override
-  public RecordWriter getRecordWriter(final HdfsSinkConnectorConfig conf, final String filename) {
+  public RecordWriter getRecordWriter(HdfsSinkConnectorConfig conf, String filename) {
     try {
       return new RecordWriter() {
-        final Path path = new Path(filename);
-        final OutputStream out = path.getFileSystem(conf.getHadoopConfiguration()).create(path);
+        final OutputStream out = storage.create(filename, true);
         final JsonGenerator writer = mapper.getFactory()
             .createGenerator(out)
             .setRootValueSeparator(null);
 
         @Override
         public void write(SinkRecord record) {
-          log.trace("Sink record: {}", record.toString());
           try {
             Object value = record.value();
             if (value instanceof Struct) {
